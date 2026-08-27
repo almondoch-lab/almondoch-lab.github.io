@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>아파트 실시간 GPS 지도</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:#f4f6f9;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#162033}
+.app{max-width:1400px;margin:auto;padding:12px}
+header{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px}
+h1{font-size:clamp(22px,3vw,34px);margin:0}
+small{color:#6d788b}
+.badge{padding:7px 11px;border-radius:999px;background:#e8edf4;font-weight:800}
+.notice{padding:11px 13px;border:1px solid #edc17a;border-radius:12px;background:#fff7e8;color:#784500;margin-bottom:10px}
+.notice.ok{background:#effaf2;border-color:#95d4a5;color:#165b2d}
+.notice.bad{background:#fff0f0;border-color:#e9a4a4;color:#8a2228}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:12px}
+.card{background:#fff;border:1px solid #d8dee8;border-radius:15px;overflow:hidden}
+.mapbox{position:relative;background:#111}
+#map{width:100%;height:auto;display:block;user-select:none;-webkit-user-drag:none}
+#overlay{position:absolute;inset:0;pointer-events:none}
+#me{position:absolute;width:24px;height:24px;border-radius:50%;background:#1769ff;border:4px solid #fff;box-shadow:0 0 0 10px #1769ff33;transform:translate(-50%,-50%);display:none;transition:left .4s linear,top .4s linear}
+#acc{position:absolute;border-radius:50%;background:#1769ff20;border:1px solid #1769ff66;transform:translate(-50%,-50%);display:none}
+#flag{position:absolute;transform:translate(-7px,-38px);display:none;width:32px;height:42px}
+#flag:before{content:"";position:absolute;left:6px;top:4px;width:3px;height:34px;background:#fff;box-shadow:0 0 0 1px #333}
+#flag:after{content:"";position:absolute;left:9px;top:4px;width:22px;height:15px;background:#e32636;border-radius:2px}
+.cal{position:absolute;width:18px;height:18px;border-radius:50%;background:#18864b;border:3px solid #fff;transform:translate(-50%,-50%)}
+.controls{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px}
+button{min-height:54px;border:0;border-radius:12px;font-size:15px;font-weight:850;padding:10px;touch-action:manipulation}
+.primary{background:#1769ff;color:#fff} .red{background:#ffe8ea;color:#9e1d2a} .gray{background:#e7ecf2} .admin{background:#fff0d9;color:#844800}
+.side{display:flex;flex-direction:column;gap:10px}
+.panel{background:#fff;border:1px solid #d8dee8;border-radius:15px;padding:12px}
+.info{border:1px solid #d8dee8;border-radius:10px;padding:9px;margin-top:7px}
+.k{font-size:12px;color:#6d788b} .v{font-size:16px;font-weight:850;margin-top:2px}
+#adminPanel{display:none}
+textarea{width:100%;min-height:100px;margin-top:8px;border:1px solid #d8dee8;border-radius:9px;padding:8px}
+.progress{height:8px;background:#e4e8ed;border-radius:99px;overflow:hidden;margin-top:8px;display:none} .progress div{height:100%;background:#1769ff;width:0}
+@media(max-width:900px){.layout{grid-template-columns:1fr}.side{display:grid;grid-template-columns:1fr 1fr}}
+@media(max-width:650px){.controls{grid-template-columns:1fr 1fr}.side{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+<header><div><h1>아파트 실시간 GPS 지도</h1><small>스마트폰 · 태블릿 공용</small></div><div id="badge" class="badge">환경 확인 중</div></header>
+<div id="notice" class="notice">「내 위치 시작」을 눌러 위치 권한을 허용하세요.</div>
+<div class="layout">
+  <div class="card">
+    <div id="mapbox" class="mapbox">
+      <img id="map" src="map.png" alt="아파트 지도">
+      <div id="overlay"><div id="acc"></div><div id="me"></div><div id="flag"></div><div id="calLayer"></div></div>
+    </div>
+    <div class="controls">
+      <button id="gpsBtn" class="primary">내 위치 시작</button>
+      <button id="destBtn" class="red">목적지 정하기</button>
+      <button id="clearBtn" class="gray">목적지 지우기</button>
+      <button id="adminBtn" class="admin">기준점 설정</button>
+    </div>
+  </div>
+  <div class="side">
+    <div class="panel"><b>현재 상태</b>
+      <div class="info"><div class="k">GPS</div><div id="gpsState" class="v">대기 중</div></div>
+      <div class="info"><div class="k">정확도</div><div id="accText" class="v">-</div></div>
+      <div class="info"><div class="k">기준점</div><div id="calText" class="v">0 / 4</div></div>
+    </div>
+    <div class="panel"><b>사용법</b><ol><li>HTTPS 주소로 접속</li><li>내 위치 시작 → 위치 허용</li><li>파란 점이 현재 위치를 따라 이동</li><li>목적지 정하기 → 지도 터치 → 빨간 깃발</li></ol></div>
+    <div id="adminPanel" class="panel"><b>최초 1회 지도 보정</b><p>서로 멀리 떨어진 실제 장소 4곳에서 기준점을 잡으세요.</p>
+      <button id="calBtn" class="admin" disabled>기준점 측정 (8초)</button>
+      <button id="resetBtn" class="gray">기준점 초기화</button>
+      <div id="progress" class="progress"><div id="bar"></div></div>
+      <textarea id="calData" readonly placeholder="기준점 데이터"></textarea>
+    </div>
+  </div>
+</div>
+</div>
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const map=$('map'),mapbox=$('mapbox'),me=$('me'),acc=$('acc'),flag=$('flag'),calLayer=$('calLayer'),notice=$('notice'),
+gpsBtn=$('gpsBtn'),destBtn=$('destBtn'),clearBtn=$('clearBtn'),adminBtn=$('adminBtn'),adminPanel=$('adminPanel'),
+calBtn=$('calBtn'),resetBtn=$('resetBtn'),gpsState=$('gpsState'),accText=$('accText'),calText=$('calText'),calData=$('calData'),
+progress=$('progress'),bar=$('bar'),badge=$('badge');
+let watchId=null,lastPos=null,mode=null,collecting=false,samples=[],pending=null,cal=[],tf=null,ref=null;
+const preset=[];
+const https=location.protocol==='https:';
+if(https) badge.textContent='HTTPS 준비됨';
+else {badge.textContent='HTTPS 필요';notice.textContent='실제 GPS는 https:// 주소에서 실행해야 합니다.';notice.classList.add('bad')}
+try{const s=JSON.parse(localStorage.getItem('apt_tablet_cal')||'[]');cal=preset.length>=4?preset:(Array.isArray(s)?s.slice(0,4):[])}catch(e){}
+function msg(t,c=''){notice.textContent=t;notice.className='notice'+(c?' '+c:'')}
+function avg(a){let sw=0,la=0,lo=0,ac=0;for(const s of a){let er=Math.max(.5,s.a||30),w=1/(er*er);sw+=w;la+=s.la*w;lo+=s.lo*w;ac+=er*w}return sw?{la:la/sw,lo:lo/sw,a:ac/sw}:null}
+function solve(A,b){let m=A.map((r,i)=>[...r,b[i]]);for(let c=0;c<3;c++){let p=c;for(let r=c+1;r<3;r++)if(Math.abs(m[r][c])>Math.abs(m[p][c]))p=r;if(Math.abs(m[p][c])<1e-12)return null;[m[c],m[p]]=[m[p],m[c]];let d=m[c][c];for(let k=c;k<4;k++)m[c][k]/=d;for(let r=0;r<3;r++)if(r!==c){let f=m[r][c];for(let k=c;k<4;k++)m[r][k]-=f*m[c][k]}}return[m[0][3],m[1][3],m[2][3]]}
+function ls(rows,v){let A=[[0,0,0],[0,0,0],[0,0,0]],B=[0,0,0];rows.forEach((r,i)=>{for(let a=0;a<3;a++){B[a]+=r[a]*v[i];for(let b=0;b<3;b++)A[a][b]+=r[a]*r[b]}});return solve(A,B)}
+function meters(la,lo){let lat0=ref.la*Math.PI/180;return[(lo-ref.lo)*111320*Math.cos(lat0),(la-ref.la)*110540]}
+function build(){if(cal.length<3){tf=null;drawCal();return}ref={la:cal[0].la,lo:cal[0].lo};let rows=cal.map(p=>{let[e,n]=meters(p.la,p.lo);return[e,n,1]}),x=ls(rows,cal.map(p=>p.x)),y=ls(rows,cal.map(p=>p.y));if(!x||!y){tf=null;msg('기준점이 너무 일직선입니다. 넓게 다시 잡으세요.','bad');return}tf={x,y};drawCal();if(lastPos)draw(lastPos)}
+function geo(la,lo){if(!tf)return null;let[e,n]=meters(la,lo);return{x:tf.x[0]*e+tf.x[1]*n+tf.x[2],y:tf.y[0]*e+tf.y[1]*n+tf.y[2]}}
+function drawCal(){calLayer.innerHTML='';cal.forEach(p=>{let d=document.createElement('div');d.className='cal';d.style.left=p.x*100+'%';d.style.top=p.y*100+'%';calLayer.appendChild(d)});calText.textContent=cal.length+' / 4';calData.value=cal.length?JSON.stringify(cal,null,2):''}
+function draw(pos){if(!tf){msg('GPS는 수신 중입니다. 기준점 4곳을 먼저 설정하세요.');return}let p=geo(pos.coords.latitude,pos.coords.longitude);if(!p)return;me.style.left=p.x*100+'%';me.style.top=p.y*100+'%';me.style.display='block';msg('현재 위치를 실시간 표시 중입니다.','ok')}
+function got(pos){lastPos=pos;gpsState.textContent='수신 중';accText.textContent='± '+pos.coords.accuracy.toFixed(1)+' m';calBtn.disabled=false;if(collecting)samples.push({la:pos.coords.latitude,lo:pos.coords.longitude,a:pos.coords.accuracy});draw(pos)}
+gpsBtn.onclick=()=>{if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;gpsBtn.textContent='내 위치 시작';gpsState.textContent='중지됨';return}if(!https){msg('HTTPS 주소로 접속해야 GPS가 작동합니다.','bad');return}watchId=navigator.geolocation.watchPosition(got,e=>{gpsState.textContent='오류';msg(e.code===1?'위치 권한을 허용하세요.':'위치를 가져오지 못했습니다.','bad')},{enableHighAccuracy:true,maximumAge:0,timeout:20000});gpsBtn.textContent='내 위치 중지'};
+destBtn.onclick=()=>{mode='dest';msg('지도에서 목적지를 터치하세요.')};clearBtn.onclick=()=>{flag.style.display='none';mode=null};
+adminBtn.onclick=()=>adminPanel.style.display=adminPanel.style.display==='block'?'none':'block';
+calBtn.onclick=()=>{if(!lastPos)return;if(cal.length>=4)return;if(collecting)return;collecting=true;samples=[];calBtn.disabled=true;progress.style.display='block';let st=Date.now();let t=setInterval(()=>{let e=Date.now()-st;bar.style.width=Math.min(100,e/80)+'%';if(e>=8000){clearInterval(t);collecting=false;calBtn.disabled=false;progress.style.display='none';pending=avg(samples);if(!pending){msg('GPS 샘플이 부족합니다.','bad');return}mode='cal';msg('측정 완료. 지도에서 현재 서 있는 위치를 터치하세요.','ok')}},200)};
+resetBtn.onclick=()=>{cal=[];tf=null;ref=null;localStorage.removeItem('apt_tablet_cal');drawCal();me.style.display='none';msg('기준점을 초기화했습니다.')};
+mapbox.onclick=e=>{let r=map.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)return;let x=(e.clientX-r.left)/r.width,y=(e.clientY-r.top)/r.height;if(mode==='dest'){flag.style.left=x*100+'%';flag.style.top=y*100+'%';flag.style.display='block';mode=null;msg('목적지를 표시했습니다.','ok')}else if(mode==='cal'&&pending){cal.push({la:pending.la,lo:pending.lo,a:pending.a,x,y});localStorage.setItem('apt_tablet_cal',JSON.stringify(cal));pending=null;mode=null;build();msg('기준점 '+cal.length+'/4 저장 완료.','ok')}};
+drawCal();build();
+})();
+</script>
+</body></html>
